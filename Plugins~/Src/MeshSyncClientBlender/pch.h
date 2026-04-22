@@ -71,4 +71,20 @@ namespace py = pybind11;
 #include "intern/rna_internal_types.h"
 #include "intern/bpy_rna.h"
 #include "intern/bmesh_structure.h"
-#pragma warning( pop ) 
+#if BLENDER_VERSION >= 362 && BLENDER_VERSION < 400
+// 3.x new-style Mesh accessors (polys() / loops() spans added in 3.3,
+// still aliased from MPoly/MLoop in 3.x)
+#include "BKE_mesh.h"
+#include "DNA_meshdata_types.h"
+#endif
+#if BLENDER_VERSION >= 400
+// 4.x+ fully attribute-based mesh API:
+//   vert_positions(), corner_verts(), corner_edges(), faces()
+//   vert_normals(), corner_normals(), poly_normals()
+// MPoly and MVert.no are removed; CD_MLOOPUV renamed to CD_PROP_FLOAT2.
+#include "BKE_mesh.hh"
+#include "BKE_attribute.hh"
+#include "DNA_meshdata_types.h"
+#include "BLI_offset_indices.hh"
+#endif
+#pragma warning( pop )
