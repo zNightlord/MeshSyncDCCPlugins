@@ -14,12 +14,12 @@ name: Build MeshSync Blender Plugin (Windows)
 
 on:
   push:
-    branches: [main, dev]
+    branches: [build, dev]
     paths:
       - 'Plugins~/**'
       - '.github/workflows/build-blender-plugin-windows.yml'
   pull_request:
-    branches: [main, dev]
+    branches: [build, dev]
     paths:
       - 'Plugins~/**'
   workflow_dispatch:
