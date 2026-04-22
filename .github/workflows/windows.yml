@@ -17,7 +17,7 @@ on:
     branches: [build, dev]
     paths:
       - 'Plugins~/**'
-      - '.github/workflows/build-blender-plugin-windows.yml'
+      - '.github/workflows/windows.yml'
   pull_request:
     branches: [build, dev]
     paths:
