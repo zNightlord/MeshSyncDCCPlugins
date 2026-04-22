@@ -674,35 +674,133 @@ void msblenContext::importMesh(ms::Mesh* mesh) {
 
     int num_vertices = mesh->points.size();
 
+#if BLENDER_VERSION >= 410
+    // ── Blender 4.1+: direct attribute-based mesh write ──────────────────
+    //
+    // MPoly and MLoop are gone from DNA. The binder's polygons() / indices()
+    // return thread_local copies for reading, so they cannot be used for
+    // writing. We write directly via the Blender 4.1+ span API instead.
+ 
+    BKE_mesh_clear_geometry(data);
+ 
+    // Set counts.
+    // Struct field renames: totpoly/totloop → faces_num/corners_num in 4.2.
+    data->totvert = num_vertices;
+#if BLENDER_VERSION >= 420
+    data->faces_num   = num_polygons;
+    data->corners_num = num_indices;
+#else
+    data->totpoly = num_polygons;
+    data->totloop = num_indices;
+#endif
+ 
+    // Allocate the position attribute (CD_PROP_FLOAT3) on vertex domain.
+    // CustomData field renames: vdata/ldata → vert_data/corner_data in 4.2.
+#if BLENDER_VERSION >= 420
+    CustomData_add_layer_named(
+        &data->vert_data, CD_PROP_FLOAT3, CD_CONSTRUCT, num_vertices, "position");
+    CustomData_add_layer_named(
+        &data->corner_data, CD_PROP_INT32, CD_CONSTRUCT, num_indices, ".corner_vert");
+#else
+    CustomData_add_layer_named(
+        &data->vdata, CD_PROP_FLOAT3, CD_CONSTRUCT, num_vertices, "position");
+    CustomData_add_layer_named(
+        &data->ldata, CD_PROP_INT32, CD_CONSTRUCT, num_indices, ".corner_vert");
+#endif
+ 
+    // Allocate face-offset storage (OffsetIndices: size == faces_num + 1).
+    // face_offsets_for_write() allocates lazily if nullptr.
+    {
+        // ── Write vertex positions ──────────────────────────────────────
+        blender::MutableSpan<blender::float3> positions = data->vert_positions_for_write();
+        for (int vi = 0; vi < num_vertices; ++vi) {
+            positions[vi] = { mesh->points[vi].x,
+                              mesh->points[vi].y,
+                              mesh->points[vi].z };
+        }
+ 
+        // ── Write face topology ─────────────────────────────────────────
+        blender::MutableSpan<int> face_offsets = data->face_offsets_for_write();
+        blender::MutableSpan<int> cVerts        = data->corner_verts_for_write();
+ 
+        // ── Write material indices via attribute ────────────────────────
+        blender::bke::MutableAttributeAccessor attrs = data->attributes_for_write();
+        blender::bke::SpanAttributeWriter<int> mat_writer =
+            attrs.lookup_or_add_for_write_span<int>(
+                "material_index", blender::bke::AttrDomain::Face);
+ 
+        int src = 0;
+        for (int pi = 0; pi < num_polygons; ++pi) {
+            // OffsetIndices: face_offsets[pi] is the first corner of face pi.
+            // All triangles here, so stride = 3.
+            const int start = pi * 3;
+            face_offsets[pi] = start;
+ 
+            // Reverse winding — same logic as the original:
+            // Unity reverses during refine, we undo it here.
+            cVerts[start + 0] = mesh->indices[src + 0];
+            cVerts[start + 2] = mesh->indices[src + 1];
+            cVerts[start + 1] = mesh->indices[src + 2];
+            src += 3;
+ 
+            // Material index
+            int blender_mat = 0;
+            const int material_index = mesh->material_ids[pi];
+            if (material_index != ms::InvalidID) {
+                auto it = rev_mid_table.find(material_index);
+                blender_mat = (it != rev_mid_table.end()) ? it->second : 0;
+            }
+            mat_writer.span[pi] = blender_mat;
+        }
+        // Sentinel: offset past the last corner
+        face_offsets[num_polygons] = num_indices;
+        mat_writer.finish();
+    }
+ 
+    // Regenerate edges from the face/corner topology.
+    // keep_existing=true so any existing edges are preserved,
+    // select_new=false so the new edges don't get selected.
+    BKE_mesh_calc_edges(data, true, false);
+ 
+    // Tag positions changed so normals, bounds, etc. are recalculated.
+    BKE_mesh_tag_positions_changed(data);
+ 
+    // calc_normals_split() is a no-op on 4.1+ (see msblenBinder.cpp),
+    // but call it anyway so the code path is uniform with < 4.1.
+    bl::BMesh(data).calc_normals_split();
+ 
+#else
+    // ── Blender < 4.1: original MPoly / MLoop write path ─────────────────
     bl::BMesh bmesh(data);
-
+ 
     bmesh.clear_geometry();
     bmesh.add_vertices(num_vertices);
     bmesh.add_polygons(num_polygons);
     bmesh.add_loops(num_indices);
-
-    auto bmeshVerts = bmesh.vertices();
-    auto bmeshIndices = bmesh.indices();
+ 
+    auto bmeshVerts    = bmesh.vertices();
+    auto bmeshIndices  = bmesh.indices();
     auto bmeshPolygons = bmesh.polygons();
-  
-    // vertices
+ 
+    // vertices — bmesh.vertices() reinterpret-casts vert_positions() so
+    // this write goes directly into Blender's memory.
     for (size_t vi = 0; vi < num_vertices; ++vi) {
         copyFloatVector(bmeshVerts[vi].co, mesh->points[vi])
     }
-
+ 
     // faces
     int ii = 0;
     for (size_t pi = 0; pi < num_polygons; ++pi) {
-        // int count = mesh->counts[pi];
-        // always 3 for triangles from unity:
         const int count = 3;
         bmeshPolygons[pi].loopstart = ii;
-        bmeshPolygons[pi].totloop = count;
-
+        bmeshPolygons[pi].totloop   = count;
+ 
         const int material_index = mesh->material_ids[pi];
         if (material_index != ms::InvalidID) {
             auto it = rev_mid_table.find(material_index);
             if (it != rev_mid_table.end()) {
+                // mat_nr_legacy: 3.4–4.0 rename of mat_nr.
+                // Back to mat_nr in our shim for >= 4.1 (above path handles that).
 #if BLENDER_VERSION >= 304
                 bmeshPolygons[pi].mat_nr_legacy = it->second;
 #else
@@ -717,16 +815,16 @@ void msblenContext::importMesh(ms::Mesh* mesh) {
 #endif
             }
         }
-
-        // Reverse triangle back because it was reversed in unity during refine step:
+ 
+        // Reverse winding:
         bmeshIndices[bmeshPolygons[pi].loopstart + 0].v = mesh->indices[ii++];
         bmeshIndices[bmeshPolygons[pi].loopstart + 2].v = mesh->indices[ii++];
         bmeshIndices[bmeshPolygons[pi].loopstart + 1].v = mesh->indices[ii++];
     }
-
-    // Calculate edges, normals, loops, etc:
+ 
     bmesh.update();
     bmesh.calc_normals_split();
+#endif
 
     Depsgraph* depsgraph = bl::BlenderPyContext::get().evaluated_depsgraph_get();
     blender::BObject bObj(obj);
@@ -972,23 +1070,24 @@ void msblenContext::doExtractNonEditMeshData(msblenContextState& state, BlenderS
 
     // normals
     if (settings.sync_normals) {
-#if 0
-        // per-vertex
-        dst.normals.resize_discard(num_vertices);
-        for (size_t vi = 0; vi < num_vertices; ++vi) {
-            dst.normals[vi] = to_float3(vertices[vi].no);
-        }
-#endif
+// #if 0
+//         // per-vertex
+//         dst.normals.resize_discard(num_vertices);
+//         for (size_t vi = 0; vi < num_vertices; ++vi) {
+//             dst.normals[vi] = to_float3(vertices[vi].no);
+//         }
+// #endif
         // per-index
-        blender::barray_range<mu::tvec3<float>> normals = bmesh.normals();
-        if (!normals.empty()) {
-            dst.normals.resize_discard(num_indices);
-            for (size_t ii = 0; ii < num_indices; ++ii) {
-                // We're not using the normals for hashing so no need to round them anymore:
-                //dst.normals[ii] = ms::ceilToDecimals(normals[ii]);
-                dst.normals[ii] = normals[ii];
-            }
-        }
+#if BLENDER_VERSION >= 400
+      barray_range<mu::float3> vn = bmesh.vert_normals();
+      for (size_t vi = 0; vi < num_vertices; ++vi) {
+          dst.normals[vi] = vn[vi];
+      }
+#else
+      for (size_t vi = 0; vi < num_vertices; ++vi) {
+          dst.normals[vi] = to_float3(vertices[vi].no);
+      }
+#endif
     }
 
 
