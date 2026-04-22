@@ -48,7 +48,7 @@ jobs:
   # 1. Build Poco once and cache it (shared by all Blender matrix entries)
   # ─────────────────────────────────────────────────────────────────────────
   build-poco:
-    name: Build Poco ${{ env.POCO_VERSION }}
+    name: Build Poco
     runs-on: windows-2022
 
     outputs:
