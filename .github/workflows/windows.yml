@@ -1,7 +1,6 @@
 # .github/workflows/windows.yml
 #
-# Builds the MeshSync Blender plugin for Windows against:
-#   Blender 4.5.0 | 5.0.0 | 5.1.0 | 5.2.0
+# Builds the MeshSync Blender plugin for Windows — Blender 5.1.0 only.
 #
 # Build process mirrors the official docs:
 #   1. make_meshsync_dcc_plugin.bat <version> <optional_args>
@@ -29,7 +28,7 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
-  # 1. Build Poco static libs once — cached across all matrix jobs
+  # 1. Build Poco static libs once — cached across runs
   # ─────────────────────────────────────────────────────────────────────────
   build-poco:
     name: Build Poco
@@ -65,56 +64,12 @@ jobs:
           cmake --install poco-build --config Release
 
   # ─────────────────────────────────────────────────────────────────────────
-  # 2. Build the plugin for each Blender version in parallel
+  # 2. Build the Blender 5.1.0 plugin
   # ─────────────────────────────────────────────────────────────────────────
   build-plugin:
-    name: Blender ${{ matrix.blender.version }}
+    name: Blender 5.1.0
     needs: build-poco
     runs-on: windows-2022
-
-    strategy:
-      fail-fast: false
-      matrix:
-        blender:
-          # ── 4.5.0 ────────────────────────────────────────────────────────
-          - version: "4.5.0"
-            cmake_flag: "BUILD_BLENDER_4.5.0_PLUGIN"
-            download_url: "https://download.blender.org/release/Blender4.5/blender-4.5.0-windows-x64.zip"
-            zip_name: "blender-4.5.0-windows-x64.zip"
-            inner_dir: "blender-4.5.0-windows-x64"
-            # Python source the bat downloads to Plugins~/Build/Python-X.Y.Z/
-            # Check build log include paths to confirm exact patch version.
-            python_src_version: "3.12.9"
-            python_src_url: "https://www.python.org/ftp/python/3.12.9/Python-3.12.9.tgz"
-
-          # ── 5.0.0 ────────────────────────────────────────────────────────
-          - version: "5.0.0"
-            cmake_flag: "BUILD_BLENDER_5.0.0_PLUGIN"
-            download_url: "https://download.blender.org/release/Blender5.0/blender-5.0.0-windows-x64.zip"
-            zip_name: "blender-5.0.0-windows-x64.zip"
-            inner_dir: "blender-5.0.0-windows-x64"
-            python_src_version: "3.13.9"
-            python_src_url: "https://www.python.org/ftp/python/3.13.9/Python-3.13.9.tgz"
-
-          # ── 5.1.0 ────────────────────────────────────────────────────────
-          # Update download_url when 5.1 ships final release.
-          - version: "5.1.0"
-            cmake_flag: "BUILD_BLENDER_5.1.0_PLUGIN"
-            download_url: "https://download.blender.org/release/Blender5.1/blender-5.1.0-windows-x64.zip"
-            zip_name: "blender-5.1.0-windows-x64.zip"
-            inner_dir: "blender-5.1.0-windows-x64"
-            python_src_version: "3.13.9"
-            python_src_url: "https://www.python.org/ftp/python/3.13.9/Python-3.13.9.tgz"
-
-          # ── 5.2.0 ────────────────────────────────────────────────────────
-          # Update download_url when 5.2 ships final release.
-          - version: "5.2.0"
-            cmake_flag: "BUILD_BLENDER_5.2.0_PLUGIN"
-            download_url: "https://download.blender.org/release/Blender5.2/blender-5.2.0-windows-x64.zip"
-            zip_name: "blender-5.2.0-windows-x64.zip"
-            inner_dir: "blender-5.2.0-windows-x64"
-            python_src_version: "3.13.9"
-            python_src_url: "https://www.python.org/ftp/python/3.13.9/Python-3.13.9.tgz"
 
     steps:
       # ── Checkout with submodules ─────────────────────────────────────────
@@ -130,69 +85,67 @@ jobs:
           path: ${{ github.workspace }}\poco-install
           key: poco-1.13.3-vs2022-x64-release
 
-      # ── Blender install ───────────────────────────────────────────────────
-      - name: Cache Blender install
+      # ── Blender 5.1.0 install ─────────────────────────────────────────────
+      - name: Cache Blender 5.1.0 install
         id: cache-blender
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}\blender-installs\${{ matrix.blender.version }}
-          key: blender-install-${{ matrix.blender.version }}
+          path: ${{ github.workspace }}\blender-installs\5.1.0
+          key: blender-install-5.1.0
 
-      - name: Download & extract Blender ${{ matrix.blender.version }}
+      - name: Download & extract Blender 5.1.0
         if: steps.cache-blender.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $zip  = "${{ runner.temp }}\${{ matrix.blender.zip_name }}"
-          $dest = "${{ github.workspace }}\blender-installs\${{ matrix.blender.version }}"
+          $zip  = "${{ runner.temp }}\blender-5.1.0-windows-x64.zip"
+          $dest = "${{ github.workspace }}\blender-installs\5.1.0"
 
-          Invoke-WebRequest -Uri "${{ matrix.blender.download_url }}" `
+          Invoke-WebRequest -Uri "https://download.blender.org/release/Blender5.1/blender-5.1.0-windows-x64.zip" `
                             -OutFile $zip -UseBasicParsing
 
           Expand-Archive -Path $zip `
                          -DestinationPath "${{ runner.temp }}\blender-extract" `
                          -Force
 
-          $inner = "${{ runner.temp }}\blender-extract\${{ matrix.blender.inner_dir }}"
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Move-Item "$inner\*" $dest
+          Move-Item "${{ runner.temp }}\blender-extract\blender-5.1.0-windows-x64\*" $dest
 
-      # ── Pre-download Python source ────────────────────────────────────────
+      # ── Pre-download Python 3.11.3 source ────────────────────────────────
       # Root cause of pyconfig.h error:
       # make_meshsync_dcc_plugin.bat downloads Python source to
-      # Plugins~/Build/Python-X.Y.Z/ but the download fails silently in CI,
+      # Plugins~/Build/Python-3.11.3/ but the download fails silently in CI,
       # leaving PC/pyconfig.h missing. We pre-populate the folder so the bat
-      # finds it already there and skips its own download attempt.
+      # finds it already there and skips its own download.
       #
-      # pyconfig.h on Windows lives in CPython source at PC/pyconfig.h.
-      # Python.h at line 14 does #include "pyconfig.h", which resolves via
-      # the /I"...\PC" compiler flag already set in the generated vcxproj.
-      - name: Cache Python ${{ matrix.blender.python_src_version }} source
+      # pyconfig.h on Windows is a static file at PC/pyconfig.h in CPython
+      # source. Python.h line 14 does #include "pyconfig.h", resolved via the
+      # /I"...\PC" flag the generated vcxproj already sets correctly.
+      - name: Cache Python 3.11.3 source
         id: cache-python-src
         uses: actions/cache@v4
         with:
-          path: Plugins~\Build\Python-${{ matrix.blender.python_src_version }}
-          key: python-src-${{ matrix.blender.python_src_version }}
+          path: Plugins~\Build\Python-3.11.3
+          key: python-src-3.11.3
 
-      - name: Download Python ${{ matrix.blender.python_src_version }} source
+      - name: Download Python 3.11.3 source
         if: steps.cache-python-src.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $ver      = "${{ matrix.blender.python_src_version }}"
-          $tgz      = "${{ runner.temp }}\Python-${ver}.tgz"
-          $extract  = "${{ runner.temp }}\python-src-extract"
-          $dest     = "Plugins~\Build\Python-${ver}"
+          $tgz     = "${{ runner.temp }}\Python-3.11.3.tgz"
+          $extract = "${{ runner.temp }}\python-src-extract"
+          $dest    = "Plugins~\Build\Python-3.11.3"
 
-          Invoke-WebRequest -Uri "${{ matrix.blender.python_src_url }}" `
+          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.3/Python-3.11.3.tgz" `
                             -OutFile $tgz -UseBasicParsing
 
           New-Item -ItemType Directory -Force -Path $extract | Out-Null
           tar -xzf $tgz -C $extract
 
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Move-Item "$extract\Python-${ver}\*" $dest
+          Move-Item "$extract\Python-3.11.3\*" $dest
 
           if (!(Test-Path "$dest\PC\pyconfig.h")) {
-            Write-Error "PC\pyconfig.h missing after extraction — check Python source version"
+            Write-Error "PC\pyconfig.h missing after extraction"
             exit 1
           }
           Write-Host "pyconfig.h verified at $dest\PC\pyconfig.h"
@@ -207,10 +160,10 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
 
           set Poco_DIR=%GITHUB_WORKSPACE%\poco-install
-          set BLENDER_PATH=%GITHUB_WORKSPACE%\blender-installs\${{ matrix.blender.version }}
+          set BLENDER_PATH=%GITHUB_WORKSPACE%\blender-installs\5.1.0
           set MESHSYNC_VER=${{ github.event.inputs.meshsync_version || '0.18.0-preview' }}
 
-          make_meshsync_dcc_plugin.bat %MESHSYNC_VER% -D${{ matrix.blender.cmake_flag }}=ON
+          make_meshsync_dcc_plugin.bat %MESHSYNC_VER% -DBUILD_BLENDER_5.1.0_PLUGIN=ON
 
       # ── msbuild ──────────────────────────────────────────────────────────
       - name: Build (msbuild)
@@ -235,51 +188,26 @@ jobs:
       - name: Package artifact
         shell: pwsh
         run: |
-          $ver     = "${{ matrix.blender.version }}"
-          $short   = ($ver -split '\.')[0..1] -join '.'
-          $outName = "UnityMeshSync_Blender_${ver}_Windows"
+          $outName = "UnityMeshSync_Blender_5.1.0_Windows"
 
           $distDir = Get-ChildItem "Plugins~\Dist" -Directory -ErrorAction SilentlyContinue |
-                       Where-Object { $_.Name -match "Blender" -and $_.Name -match $short } |
+                       Where-Object { $_.Name -match "Blender" -and $_.Name -match "5\.1" } |
                        Select-Object -First 1
 
           if (-not $distDir) {
-            Write-Error "Dist folder for Blender $short not found. Contents of Plugins~\Dist:"
+            Write-Error "Dist folder for Blender 5.1 not found. Contents of Plugins~\Dist:"
             Get-ChildItem "Plugins~\Dist" | Format-List
             exit 1
           }
 
           Compress-Archive -Path "$($distDir.FullName)\*" `
                            -DestinationPath "${outName}.zip" -Force
-          Write-Host "Packaged: ${outName}.zip"
+          Write-Host "Packaged: ${outName}.zip from $($distDir.FullName)"
 
       # ── Upload ───────────────────────────────────────────────────────────
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: UnityMeshSync-Blender-${{ matrix.blender.version }}-Windows
-          path: "UnityMeshSync_Blender_${{ matrix.blender.version }}_Windows.zip"
-          retention-days: 30
+          name: UnityMeshSync-Blender-5.1.0-Windows
+          path: UnityMeshSync_Blender_5.1.0_Windows.zip
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # 3. Create a GitHub Release when a version tag (v*) is pushed
-  # ─────────────────────────────────────────────────────────────────────────
-  release:
-    name: Create GitHub Release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build-plugin
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: release-artifacts
-
-      - name: Publish release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: release-artifacts/**/*.zip
-          generate_release_notes: true
