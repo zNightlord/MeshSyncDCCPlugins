@@ -434,15 +434,32 @@ PYBIND11_NOINLINE inline std::string error_string() {
         while (trace->tb_next)
             trace = trace->tb_next;
 
+        // FIX: Use PyTraceback_GetFrame (Python 3.11+) or the getter
+#if PY_VERSION_HEX >= 0x030b0000
+        PyFrameObject *frame = PyTraceback_GetFrame(trace); 
+#else
         PyFrameObject *frame = trace->tb_frame;
+        Py_XINCREF(frame);
+#endif
+
         errorString += "\n\nAt:\n";
         while (frame) {
             int lineno = PyFrame_GetLineNumber(frame);
+            
+            // FIX: Use PyFrame_GetCode to get the code object
+            PyCodeObject *f_code = PyFrame_GetCode(frame);
+            
             errorString +=
-                "  " + handle(frame->f_code->co_filename).cast<std::string>() +
+                "  " + handle(f_code->co_filename).cast<std::string>() +
                 "(" + std::to_string(lineno) + "): " +
-                handle(frame->f_code->co_name).cast<std::string>() + "\n";
-            frame = frame->f_back;
+                handle(f_code->co_name).cast<std::string>() + "\n";
+            
+            Py_DECREF(f_code); // Code object from PyFrame_GetCode is a new ref
+
+            // FIX: Use PyFrame_GetBack to iterate
+            PyFrameObject *back = PyFrame_GetBack(frame);
+            Py_DECREF(frame); 
+            frame = back;
         }
     }
 #endif
