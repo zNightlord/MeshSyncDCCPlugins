@@ -135,7 +135,7 @@ jobs:
           $extract = "${{ runner.temp }}\python-src-extract"
           $dest    = "Plugins~\Build\Python-3.13.9"
 
-          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.3/Python-3.11.3.tgz" `
+          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.13.9/Python-3.13.9.tgz" `
                             -OutFile $tgz -UseBasicParsing
 
           New-Item -ItemType Directory -Force -Path $extract | Out-Null
