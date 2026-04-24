@@ -90,23 +90,22 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Move-Item "${{ runner.temp }}\blender-extract\blender-5.1.0-windows-x64\*" $dest
 
-      # ── Download Python 3.11.3 but label it as 3.13.9 ─────────────────────
-      - name: Cache Python Source (Spoofed)
+      # ── Pre-download Python 3.13.9 source ────────────────────────────────
+      - name: Cache Python 3.13.9 source
         id: cache-python-src
         uses: actions/cache@v4
         with:
           path: Plugins~\Build\Python-3.13.9
-          key: python-src-3.11.3-spoof-3.13.9
+          key: python-src-3.13.9
 
-      - name: Download Python 3.11.3 source
+      - name: Download Python 3.13.9 source
         if: steps.cache-python-src.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $ver     = "3.11.3"
-          $fakeVer = "3.13.9" 
+          $ver     = "3.13.9"
           $tgz     = "${{ runner.temp }}\Python-$ver.tgz"
           $extract = "${{ runner.temp }}\python-src-extract"
-          $dest    = "Plugins~\Build\Python-$fakeVer"
+          $dest    = "Plugins~\Build\Python-$ver"
 
           Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$ver/Python-$ver.tgz" `
                             -OutFile $tgz -UseBasicParsing
@@ -115,14 +114,13 @@ jobs:
           tar -xzf $tgz -C $extract
 
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          # Put 3.11.3 contents into the Python-3.13.9 directory
           Move-Item "$extract\Python-$ver\*" $dest
 
           if (!(Test-Path "$dest\PC\pyconfig.h")) {
             Write-Error "PC\pyconfig.h missing after extraction"
             exit 1
           }
-          Write-Host "Python 3.11.3 successfully staged in $dest"
+          Write-Host "pyconfig.h verified at $dest\PC\pyconfig.h"
 
       # ── Generate solution ─────────────────────────────────────────────────
       - name: Generate solution (make_meshsync_dcc_plugin.bat)
@@ -135,7 +133,7 @@ jobs:
           set BLENDER_PATH=%GITHUB_WORKSPACE%\blender-installs\5.1.0
           set MESHSYNC_VER=${{ github.event.inputs.meshsync_version || '0.18.0-preview' }}
 
-          :: make_meshsync_dcc_plugin.bat will now find our spoofed Python folder
+          :: This will now find the Python-3.13.9 folder we prepared
           make_meshsync_dcc_plugin.bat %MESHSYNC_VER% -DBUILD_BLENDER_5.1.0_PLUGIN=ON
 
       # ── msbuild ──────────────────────────────────────────────────────────
