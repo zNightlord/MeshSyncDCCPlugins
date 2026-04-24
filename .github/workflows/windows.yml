@@ -19,7 +19,7 @@ on:
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
-  # 1. Build Poco static libs
+  # 1. Build Poco
   # ─────────────────────────────────────────────────────────────────────────
   build-poco:
     name: Build Poco
@@ -80,24 +80,30 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Move-Item "${{ runner.temp }}\blender-extract\blender-5.1.0-windows-x64\*" $dest
 
-      # ── Set up Python Dev headers from Blender ───────────────────────────
-      # We point MeshSync to the headers already included in Blender's zip.
-      # Blender structure: 5.1\python\include\Python.h & pyconfig.h
-      - name: Setup Python 3.13.9 Dev Headers
+      # ── Download Precompiled Python Dev Files via NuGet ──────────────────
+      # The NuGet 'python' package contains the pre-configured PC/pyconfig.h 
+      # that the source .tgz distribution lacks.
+      - name: Download Python 3.13.2 Dev
         shell: pwsh
         run: |
           $pyDest = "Plugins~\Build\Python-3.13.9"
-          $blenderPyInclude = "${{ github.workspace }}\blender-installs\5.1.0\5.1\python\include"
+          $nugetDest = "${{ runner.temp }}\python-nuget"
           
-          # Create the structure MeshSync's python.cmake expects
+          # Install the python nuget package (tools only for headers/libs)
+          nuget install python -Version 3.13.2 -OutputDirectory $nugetDest
+          
+          $pyRoot = Get-ChildItem -Path "$nugetDest\python*" | Select-Object -First 1
+          
+          # Create the structure MeshSync expects
           New-Item -ItemType Directory -Force -Path "$pyDest\Include" | Out-Null
           New-Item -ItemType Directory -Force -Path "$pyDest\PC" | Out-Null
           
-          # Copy headers to Include and specifically pyconfig.h to PC
-          Copy-Item "$blenderPyInclude\*" "$pyDest\Include\" -Recurse -Force
-          Copy-Item "$blenderPyInclude\pyconfig.h" "$pyDest\PC\pyconfig.h" -Force
+          # Copy precompiled headers
+          Copy-Item "$($pyRoot.FullName)\tools\include\*" "$pyDest\Include\" -Recurse -Force
+          # Nuget pre-compiles pyconfig.h into the include folder; copy it to PC for MeshSync
+          Copy-Item "$($pyRoot.FullName)\tools\include\pyconfig.h" "$pyDest\PC\pyconfig.h" -Force
           
-          Write-Host "Verified pyconfig.h at $pyDest\PC\pyconfig.h"
+          Write-Host "Python 3.13.2 Dev headers staged at $pyDest"
 
       - name: Generate solution (make_meshsync_dcc_plugin.bat)
         shell: cmd
@@ -134,3 +140,22 @@ jobs:
         with:
           name: UnityMeshSync-Blender-5.1.0-Windows
           path: UnityMeshSync_Blender_5.1.0_Windows.zip
+          retention-days: 30
+
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-plugin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/**/*.zip
+          generate_release_notes: true
