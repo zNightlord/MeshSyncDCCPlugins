@@ -1,3 +1,12 @@
+# .github/workflows/windows.yml
+#
+# Builds the MeshSync Blender plugin for Windows — Blender 5.1.0 only.
+#
+# Build process mirrors the official docs:
+#   1. make_meshsync_dcc_plugin.bat <version> <optional_args>
+#   2. msbuild MeshSyncDCCPlugins.sln /t:Build /p:Configuration=Release ...
+#   3. cmake -DBUILD_TYPE=Release -P cmake_install.cmake
+
 name: Build MeshSync Blender Plugin (Windows)
 
 on:
@@ -38,8 +47,10 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
+
           curl -fsSL -o poco-src.zip https://github.com/pocoproject/poco/archive/poco-1.13.3-release.zip
           tar -xf poco-src.zip
+
           cmake ^
             -S poco-poco-1.13.3-release ^
             -B poco-build ^
@@ -48,6 +59,7 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF ^
             -DENABLE_TESTS=OFF ^
             -DENABLE_SAMPLES=OFF
+
           cmake --build poco-build --config Release
           cmake --install poco-build --config Release
 
@@ -60,17 +72,20 @@ jobs:
     runs-on: windows-2022
 
     steps:
+      # ── Checkout with submodules ─────────────────────────────────────────
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
+      # ── Restore Poco ─────────────────────────────────────────────────────
       - name: Restore Poco cache
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}\poco-install
           key: poco-1.13.3-vs2022-x64-release
 
+      # ── Blender 5.1.0 install ─────────────────────────────────────────────
       - name: Cache Blender 5.1.0 install
         id: cache-blender
         uses: actions/cache@v4
@@ -84,13 +99,27 @@ jobs:
         run: |
           $zip  = "${{ runner.temp }}\blender-5.1.0-windows-x64.zip"
           $dest = "${{ github.workspace }}\blender-installs\5.1.0"
+
           Invoke-WebRequest -Uri "https://download.blender.org/release/Blender5.1/blender-5.1.0-windows-x64.zip" `
                             -OutFile $zip -UseBasicParsing
-          Expand-Archive -Path $zip -DestinationPath "${{ runner.temp }}\blender-extract" -Force
+
+          Expand-Archive -Path $zip `
+                         -DestinationPath "${{ runner.temp }}\blender-extract" `
+                         -Force
+
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Move-Item "${{ runner.temp }}\blender-extract\blender-5.1.0-windows-x64\*" $dest
 
       # ── Pre-download Python 3.13.9 source ────────────────────────────────
+      # Root cause of pyconfig.h error:
+      # make_meshsync_dcc_plugin.bat downloads Python source to
+      # Plugins~/Build/Python-3.13.9/ but the download fails silently in CI,
+      # leaving PC/pyconfig.h missing. We pre-populate the folder so the bat
+      # finds it already there and skips its own download.
+      #
+      # pyconfig.h on Windows is a static file at PC/pyconfig.h in CPython
+      # source. Python.h line 14 does #include "pyconfig.h", resolved via the
+      # /I"...\PC" flag the generated vcxproj already sets correctly.
       - name: Cache Python 3.13.9 source
         id: cache-python-src
         uses: actions/cache@v4
@@ -102,19 +131,18 @@ jobs:
         if: steps.cache-python-src.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $ver     = "3.13.9"
-          $tgz     = "${{ runner.temp }}\Python-$ver.tgz"
+          $tgz     = "${{ runner.temp }}\Python-3.13.9.tgz"
           $extract = "${{ runner.temp }}\python-src-extract"
-          $dest    = "Plugins~\Build\Python-$ver"
+          $dest    = "Plugins~\Build\Python-3.13.9"
 
-          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$ver/Python-$ver.tgz" `
+          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.3/Python-3.11.3.tgz" `
                             -OutFile $tgz -UseBasicParsing
 
           New-Item -ItemType Directory -Force -Path $extract | Out-Null
           tar -xzf $tgz -C $extract
 
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Move-Item "$extract\Python-$ver\*" $dest
+          Move-Item "$extract\Python-3.13.9\*" $dest
 
           if (!(Test-Path "$dest\PC\pyconfig.h")) {
             Write-Error "PC\pyconfig.h missing after extraction"
@@ -123,6 +151,8 @@ jobs:
           Write-Host "pyconfig.h verified at $dest\PC\pyconfig.h"
 
       # ── Generate solution ─────────────────────────────────────────────────
+      # Poco_DIR     : bat reads this to find Poco's CMake config
+      # BLENDER_PATH : bat reads this to locate the Blender install directory
       - name: Generate solution (make_meshsync_dcc_plugin.bat)
         shell: cmd
         working-directory: Plugins~\Build
@@ -133,7 +163,6 @@ jobs:
           set BLENDER_PATH=%GITHUB_WORKSPACE%\blender-installs\5.1.0
           set MESHSYNC_VER=${{ github.event.inputs.meshsync_version || '0.18.0-preview' }}
 
-          :: This will now find the Python-3.13.9 folder we prepared
           make_meshsync_dcc_plugin.bat %MESHSYNC_VER% -DBUILD_BLENDER_5.1.0_PLUGIN=ON
 
       # ── msbuild ──────────────────────────────────────────────────────────
@@ -160,17 +189,20 @@ jobs:
         shell: pwsh
         run: |
           $outName = "UnityMeshSync_Blender_5.1.0_Windows"
+
           $distDir = Get-ChildItem "Plugins~\Dist" -Directory -ErrorAction SilentlyContinue |
                        Where-Object { $_.Name -match "Blender" -and $_.Name -match "5\.1" } |
                        Select-Object -First 1
 
           if (-not $distDir) {
-            Write-Error "Dist folder for Blender 5.1 not found."
+            Write-Error "Dist folder for Blender 5.1 not found. Contents of Plugins~\Dist:"
+            Get-ChildItem "Plugins~\Dist" | Format-List
             exit 1
           }
 
           Compress-Archive -Path "$($distDir.FullName)\*" `
                            -DestinationPath "${outName}.zip" -Force
+          Write-Host "Packaged: ${outName}.zip from $($distDir.FullName)"
 
       # ── Upload ───────────────────────────────────────────────────────────
       - name: Upload artifact
@@ -178,3 +210,27 @@ jobs:
         with:
           name: UnityMeshSync-Blender-5.1.0-Windows
           path: UnityMeshSync_Blender_5.1.0_Windows.zip
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # 3. Create a GitHub Release when a version tag (v*) is pushed
+  # ─────────────────────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-plugin
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-artifacts/**/*.zip
+          generate_release_notes: true
