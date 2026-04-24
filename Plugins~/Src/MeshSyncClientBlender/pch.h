@@ -39,9 +39,9 @@ namespace py = pybind11;
 // ─────────────────────────────────────────────────────────────────────────────
 
 #include "BKE_blender_version.h"
-#include "BKE_main.h"
-#include "BKE_context.h"
-#include "BKE_material.h"
+#include "BKE_main.hh"
+#include "BKE_context.hh"
+#include "BKE_material.hh"
 
 // BKE_customdata: .h in < 4.0, .hh in >= 4.0
 // The .hh version uses StringRef for name params — see compat macros below.
