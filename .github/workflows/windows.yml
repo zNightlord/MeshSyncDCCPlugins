@@ -38,10 +38,8 @@ jobs:
         shell: cmd
         run: |
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
-
           curl -fsSL -o poco-src.zip https://github.com/pocoproject/poco/archive/poco-1.13.3-release.zip
           tar -xf poco-src.zip
-
           cmake ^
             -S poco-poco-1.13.3-release ^
             -B poco-build ^
@@ -50,7 +48,6 @@ jobs:
             -DBUILD_SHARED_LIBS=OFF ^
             -DENABLE_TESTS=OFF ^
             -DENABLE_SAMPLES=OFF
-
           cmake --build poco-build --config Release
           cmake --install poco-build --config Release
 
@@ -93,22 +90,23 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Move-Item "${{ runner.temp }}\blender-extract\blender-5.1.0-windows-x64\*" $dest
 
-      # ── Pre-download Python 3.11.3 source ────────────────────────────────
-      - name: Cache Python 3.11.3 source
+      # ── Download Python 3.11.3 but label it as 3.13.9 ─────────────────────
+      - name: Cache Python Source (Spoofed)
         id: cache-python-src
         uses: actions/cache@v4
         with:
-          path: Plugins~\Build\Python-3.11.3
-          key: python-src-3.11.3
+          path: Plugins~\Build\Python-3.13.9
+          key: python-src-3.11.3-spoof-3.13.9
 
       - name: Download Python 3.11.3 source
         if: steps.cache-python-src.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $ver     = "3.11.3"
+          $fakeVer = "3.13.9" 
           $tgz     = "${{ runner.temp }}\Python-$ver.tgz"
           $extract = "${{ runner.temp }}\python-src-extract"
-          $dest    = "Plugins~\Build\Python-$ver"
+          $dest    = "Plugins~\Build\Python-$fakeVer"
 
           Invoke-WebRequest -Uri "https://www.python.org/ftp/python/$ver/Python-$ver.tgz" `
                             -OutFile $tgz -UseBasicParsing
@@ -117,13 +115,14 @@ jobs:
           tar -xzf $tgz -C $extract
 
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          # Put 3.11.3 contents into the Python-3.13.9 directory
           Move-Item "$extract\Python-$ver\*" $dest
 
           if (!(Test-Path "$dest\PC\pyconfig.h")) {
             Write-Error "PC\pyconfig.h missing after extraction"
             exit 1
           }
-          Write-Host "pyconfig.h verified at $dest\PC\pyconfig.h"
+          Write-Host "Python 3.11.3 successfully staged in $dest"
 
       # ── Generate solution ─────────────────────────────────────────────────
       - name: Generate solution (make_meshsync_dcc_plugin.bat)
@@ -135,14 +134,9 @@ jobs:
           set Poco_DIR=%GITHUB_WORKSPACE%\poco-install
           set BLENDER_PATH=%GITHUB_WORKSPACE%\blender-installs\5.1.0
           set MESHSYNC_VER=${{ github.event.inputs.meshsync_version || '0.18.0-preview' }}
-          
-          :: Force path to the specific 3.11.3 source we downloaded
-          set PYTHON_SOURCE_DIR=%GITHUB_WORKSPACE%\Plugins~\Build\Python-3.11.3
 
-          make_meshsync_dcc_plugin.bat %MESHSYNC_VER% ^
-            -DBUILD_BLENDER_5.1.0_PLUGIN=ON ^
-            -DPYTHON_VERSION=3.11.3 ^
-            -DPYTHON_SOURCE_DIR="%PYTHON_SOURCE_DIR%"
+          :: make_meshsync_dcc_plugin.bat will now find our spoofed Python folder
+          make_meshsync_dcc_plugin.bat %MESHSYNC_VER% -DBUILD_BLENDER_5.1.0_PLUGIN=ON
 
       # ── msbuild ──────────────────────────────────────────────────────────
       - name: Build (msbuild)
