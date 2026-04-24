@@ -37,7 +37,7 @@ on:
       meshsync_version:
         description: 'MeshSync package version (e.g. 0.18.0)'
         required: true
-        default: '0.18.0'
+        default: '0.18.0-preview'
 
 env:
   # ── Poco ──────────────────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ env:
   BLENDER_ROOT: ${{ github.workspace }}\blender-installs
 
   # ── MeshSync version (overridden by workflow_dispatch input if provided) ───
-  MESHSYNC_VERSION: ${{ github.event.inputs.meshsync_version || '0.18.0' }}
+  MESHSYNC_VERSION: ${{ github.event.inputs.meshsync_version || '0.18.0-preview' }}
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
