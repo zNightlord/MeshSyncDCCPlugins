@@ -58,7 +58,7 @@ jobs:
   # 1. Build Poco static libs once — cached across all matrix jobs
   # ─────────────────────────────────────────────────────────────────────────
   build-poco:
-    name: Build Poco ${{ env.POCO_VERSION }}
+    name: Build Poco
     runs-on: windows-2022
 
     steps:
