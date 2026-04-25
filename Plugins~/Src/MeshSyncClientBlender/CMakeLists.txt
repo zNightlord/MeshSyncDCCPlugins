@@ -63,6 +63,10 @@ elseif(WIN32)
 endif()
 set_target_properties(${MESHSYNC_CLIENT_BLENDER} PROPERTIES PREFIX "")
 set_target_properties(${MESHSYNC_CLIENT_BLENDER} PROPERTIES OUTPUT_NAME "MeshSyncClientBlender")
+set_target_properties(${MESHSYNC_CLIENT_BLENDER} PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+)
 
 # Install/copying after build
 set(DIST_DIR "${DIST_ROOT}/UnityMeshSync_${UNITY_PACKAGE_VERSION}_Blender_${PLATFORM}/blender-${BLENDER_VERSION}")
