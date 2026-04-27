@@ -85,7 +85,7 @@ jobs:
           $url = "https://projects.blender.org/blender/lib-windows_x64/archive/blender-v5.1-release.zip"
           $output = "blender-libs.zip"
           Invoke-WebRequest -Uri $url -OutFile $output
-          Expand-Archive -Path $output -DestinationPath ${{ github.workspace }}/Plugins~/Build/blender-5.1.0/source/blender
+          Expand-Archive -Path $output -DestinationPath ${{ github.workspace }}/Plugins~/Build/blender-5.1.0/source/blender/lib
           
       # - name: Configure CMake with lib-windows_x64
       #   run: |
@@ -96,7 +96,7 @@ jobs:
       # ── Download Precompiled Python Dev Files via NuGet ──────────────────
       # The NuGet 'python' package contains the pre-configured PC/pyconfig.h 
       # that the source .tgz distribution lacks.
-      - name: Download Python 3.13.2 Dev
+      - name: Download Python 3.13.9 Dev
         shell: pwsh
         run: |
           $pyDest = "Plugins~\Build\Python-3.13.9"
