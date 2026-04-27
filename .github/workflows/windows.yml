@@ -87,36 +87,36 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile $output
           Expand-Archive -Path $output -DestinationPath ${{ github.workspace }}/blender-deps
           
-      - name: Configure CMake with lib-windows_x64
+      # - name: Configure CMake with lib-windows_x64
+      #   run: |
+      #     cd Plugins~\Build
+      #     cmake . -G "Visual Studio 17 2022" -A x64 `
+      #       -DCMAKE_PREFIX_PATH="${{ github.workspace }}/blender-deps/lib-windows_x64" `
+      #       -DBLENDER_VERSION=5.1.0
+      # ── Download Precompiled Python Dev Files via NuGet ──────────────────
+      # The NuGet 'python' package contains the pre-configured PC/pyconfig.h 
+      # that the source .tgz distribution lacks.
+      - name: Download Python 3.13.2 Dev
+        shell: pwsh
         run: |
-          cd Plugins~\Build
-          cmake . -G "Visual Studio 17 2022" -A x64 `
-            -DCMAKE_PREFIX_PATH="${{ github.workspace }}/blender-deps/lib-windows_x64" `
-            -DBLENDER_VERSION=5.1.0
-            # ── Download Precompiled Python Dev Files via NuGet ──────────────────
-            # The NuGet 'python' package contains the pre-configured PC/pyconfig.h 
-            # that the source .tgz distribution lacks.
-            - name: Download Python 3.13.2 Dev
-              shell: pwsh
-              run: |
-                $pyDest = "Plugins~\Build\Python-3.13.9"
-                $nugetDest = "${{ runner.temp }}\python-nuget"
-                
-                # Install the python nuget package (tools only for headers/libs)
-                nuget install python -Version 3.13.9 -OutputDirectory $nugetDest
-                
-                $pyRoot = Get-ChildItem -Path "$nugetDest\python*" | Select-Object -First 1
-                
-                # Create the structure MeshSync expects
-                New-Item -ItemType Directory -Force -Path "$pyDest\Include" | Out-Null
-                New-Item -ItemType Directory -Force -Path "$pyDest\PC" | Out-Null
-                
-                # Copy precompiled headers
-                Copy-Item "$($pyRoot.FullName)\tools\include\*" "$pyDest\Include\" -Recurse -Force
-                # Nuget pre-compiles pyconfig.h into the include folder; copy it to PC for MeshSync
-                Copy-Item "$($pyRoot.FullName)\tools\include\pyconfig.h" "$pyDest\PC\pyconfig.h" -Force
-                
-                Write-Host "Python 3.13.9 Dev headers staged at $pyDest"
+          $pyDest = "Plugins~\Build\Python-3.13.9"
+          $nugetDest = "${{ runner.temp }}\python-nuget"
+          
+          # Install the python nuget package (tools only for headers/libs)
+          nuget install python -Version 3.13.9 -OutputDirectory $nugetDest
+          
+          $pyRoot = Get-ChildItem -Path "$nugetDest\python*" | Select-Object -First 1
+          
+          # Create the structure MeshSync expects
+          New-Item -ItemType Directory -Force -Path "$pyDest\Include" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$pyDest\PC" | Out-Null
+          
+          # Copy precompiled headers
+          Copy-Item "$($pyRoot.FullName)\tools\include\*" "$pyDest\Include\" -Recurse -Force
+          # Nuget pre-compiles pyconfig.h into the include folder; copy it to PC for MeshSync
+          Copy-Item "$($pyRoot.FullName)\tools\include\pyconfig.h" "$pyDest\PC\pyconfig.h" -Force
+          
+          Write-Host "Python 3.13.9 Dev headers staged at $pyDest"
 
       - name: Generate solution (make_meshsync_dcc_plugin.bat)
         shell: cmd
