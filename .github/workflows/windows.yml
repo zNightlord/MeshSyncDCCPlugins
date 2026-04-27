@@ -85,7 +85,7 @@ jobs:
           $url = "https://projects.blender.org/blender/lib-windows_x64/archive/blender-v5.1-release.zip"
           $output = "blender-libs.zip"
           Invoke-WebRequest -Uri $url -OutFile $output
-          Expand-Archive -Path $output -DestinationPath ${{ github.workspace }}/blender-deps
+          Expand-Archive -Path $output -DestinationPath ${{ github.workspace }}/Plugins~/Build/blender-5.1.0/source/blender
           
       # - name: Configure CMake with lib-windows_x64
       #   run: |
