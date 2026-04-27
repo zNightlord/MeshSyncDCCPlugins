@@ -125,6 +125,7 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
           set Poco_DIR=%GITHUB_WORKSPACE%\poco-install
           set BLENDER_PATH=%GITHUB_WORKSPACE%\blender-installs\5.1.0
+          set CMAKE_INCLUDE_PATH=%GITHUB_WORKSPACE%\Plugins~\Build\blender-5.1.0\source\blender\lib\lib-windows_x64\fmt\include
           set MESHSYNC_VER=${{ github.event.inputs.meshsync_version || '0.18.0-preview' }}
           make_meshsync_dcc_plugin.bat %MESHSYNC_VER% -DBUILD_BLENDER_5.1.0_PLUGIN=ON
 
