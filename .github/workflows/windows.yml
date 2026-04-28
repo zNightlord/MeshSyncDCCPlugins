@@ -62,6 +62,7 @@ jobs:
           path: ${{ github.workspace }}\poco-install
           key: poco-1.13.3-vs2022-x64-release
 
+      # ── Blender 5.1.0 Windows install ────────────────────────────────────
       - name: Cache Blender 5.1.0 install
         id: cache-blender
         uses: actions/cache@v4
@@ -80,44 +81,51 @@ jobs:
           New-Item -ItemType Directory -Force -Path $dest | Out-Null
           Move-Item "${{ runner.temp }}\blender-extract\blender-5.1.0-windows-x64\*" $dest
 
-      - name: Download Blender Windows Libraries
-        run: |
-          $url = "https://projects.blender.org/blender/lib-windows_x64/archive/blender-v5.1-release.zip"
-          $output = "blender-libs.zip"
-          Invoke-WebRequest -Uri $url -OutFile $output
-          Expand-Archive -Path $output -DestinationPath ${{ github.workspace }}/Plugins~/Build/blender-5.1.0/source/blender/lib
-          
-      # - name: Configure CMake with lib-windows_x64
-      #   run: |
-      #     cd Plugins~\Build
-      #     cmake . -G "Visual Studio 17 2022" -A x64 `
-      #       -DCMAKE_PREFIX_PATH="${{ github.workspace }}/blender-deps/lib-windows_x64" `
-      #       -DBLENDER_VERSION=5.1.0
-      # ── Download Precompiled Python Dev Files via NuGet ──────────────────
-      # The NuGet 'python' package contains the pre-configured PC/pyconfig.h 
-      # that the source .tgz distribution lacks.
-      - name: Download Python 3.13.9 Dev
+      # ── Python 3.11.3 source (provides PC/pyconfig.h) ────────────────────
+      # The bat script downloads Python source to Plugins~/Build/Python-3.11.3/
+      # but the download fails silently in CI. We pre-populate the folder.
+      # PC/pyconfig.h is a static Windows-specific config included by Python.h.
+      - name: Cache Python 3.11.3 source
+        id: cache-python
+        uses: actions/cache@v4
+        with:
+          path: Plugins~\Build\Python-3.11.3
+          key: python-src-3.11.3
+
+      - name: Download Python 3.11.3 source
+        if: steps.cache-python.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
-          $pyDest = "Plugins~\Build\Python-3.13.9"
-          $nugetDest = "${{ runner.temp }}\python-nuget"
-          
-          # Install the python nuget package (tools only for headers/libs)
-          nuget install python -Version 3.13.9 -OutputDirectory $nugetDest
-          
-          $pyRoot = Get-ChildItem -Path "$nugetDest\python*" | Select-Object -First 1
-          
-          # Create the structure MeshSync expects
-          New-Item -ItemType Directory -Force -Path "$pyDest\Include" | Out-Null
-          New-Item -ItemType Directory -Force -Path "$pyDest\PC" | Out-Null
-          
-          # Copy precompiled headers
-          Copy-Item "$($pyRoot.FullName)\tools\include\*" "$pyDest\Include\" -Recurse -Force
-          # Nuget pre-compiles pyconfig.h into the include folder; copy it to PC for MeshSync
-          Copy-Item "$($pyRoot.FullName)\tools\include\pyconfig.h" "$pyDest\PC\pyconfig.h" -Force
-          
-          Write-Host "Python 3.13.9 Dev headers staged at $pyDest"
+          $tgz  = "${{ runner.temp }}\Python-3.11.3.tgz"
+          $dest = "Plugins~\Build\Python-3.11.3"
+          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.3/Python-3.11.3.tgz" -OutFile $tgz -UseBasicParsing
+          New-Item -ItemType Directory -Force -Path "${{ runner.temp }}\py-extract" | Out-Null
+          tar -xzf $tgz -C "${{ runner.temp }}\py-extract"
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Move-Item "${{ runner.temp }}\py-extract\Python-3.11.3\*" $dest
+          if (!(Test-Path "$dest\PC\pyconfig.h")) { Write-Error "pyconfig.h missing"; exit 1 }
+          Write-Host "pyconfig.h OK"
 
+      # ── Cache fmtlib headers ──────────────────────────────────────────────
+      - name: Cache fmtlib 10.2.1
+        id: cache-fmtlib
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}\fmtlib
+          key: fmtlib-10.2.1
+
+      - name: Download fmtlib 10.2.1
+        if: steps.cache-fmtlib.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $zip = "${{ runner.temp }}\fmt.zip"
+          Invoke-WebRequest -Uri "https://github.com/fmtlib/fmt/archive/refs/tags/10.2.1.zip" -OutFile $zip -UseBasicParsing
+          Expand-Archive -Path $zip -DestinationPath "${{ runner.temp }}\fmtlib" -Force
+
+      # ── Generate solution ─────────────────────────────────────────────────
+      # The bat script also downloads the Blender source headers to
+      # Plugins~/Build/blender-5.1.0/ — we need this to run BEFORE we can
+      # stage fmtlib, because the target directory doesn't exist yet.
       - name: Generate solution (make_meshsync_dcc_plugin.bat)
         shell: cmd
         working-directory: Plugins~\Build
@@ -125,10 +133,43 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
           set Poco_DIR=%GITHUB_WORKSPACE%\poco-install
           set BLENDER_PATH=%GITHUB_WORKSPACE%\blender-installs\5.1.0
-          set CMAKE_INCLUDE_PATH=%GITHUB_WORKSPACE%\Plugins~\Build\blender-5.1.0\source\blender\lib\lib-windows_x64\fmt\include
           set MESHSYNC_VER=${{ github.event.inputs.meshsync_version || '0.18.0-preview' }}
           make_meshsync_dcc_plugin.bat %MESHSYNC_VER% -DBUILD_BLENDER_5.1.0_PLUGIN=ON
 
+      # ── Stage fmtlib into the blenlib include path (fmt/ranges.h fix) ─────
+      # Root cause: BLI_string_ref.hh line 35 does #include <fmt/ranges.h>.
+      # Blender's extern/fmtlib is not downloaded by the bat script, so the
+      # compiler can't find it.
+      #
+      # The compiler include path already contains blenlib:
+      #   /I"...\Build\blender-5.1.0\source\blender\blenlib"
+      #
+      # So placing fmt/ inside blenlib/ makes the include resolve without
+      # any changes to the generated vcxproj or CMake files.
+      #
+      # IMPORTANT: this step must run AFTER make_meshsync_dcc_plugin.bat
+      # because the bat creates the blender-5.1.0 source directory.
+      - name: Stage fmtlib into blenlib
+        shell: pwsh
+        run: |
+          $blenlib = "Plugins~\Build\blender-5.1.0\source\blender\blenlib"
+          $fmtSrc  = "${{ runner.temp }}\fmtlib\fmt-10.2.1\include\fmt"
+          $fmtDest = "$blenlib\fmt"
+
+          if (!(Test-Path $blenlib)) {
+            Write-Error "blenlib not found at $blenlib — bat script did not download Blender source"
+            exit 1
+          }
+
+          New-Item -ItemType Directory -Force -Path $fmtDest | Out-Null
+          Copy-Item "$fmtSrc\*" $fmtDest -Force
+
+          if (!(Test-Path "$fmtDest\ranges.h")) {
+            Write-Error "fmt/ranges.h missing after staging"; exit 1
+          }
+          Write-Host "fmt/ranges.h staged OK"
+
+      # ── msbuild ──────────────────────────────────────────────────────────
       - name: Build (msbuild)
         shell: cmd
         working-directory: Plugins~\Build
@@ -136,21 +177,30 @@ jobs:
           call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\Common7\Tools\VsDevCmd.bat" -arch=x64
           msbuild MeshSyncDCCPlugins.sln /t:Build /p:Configuration=Release /p:Platform=x64 /m /nologo
 
+      # ── Install ───────────────────────────────────────────────────────────
       - name: Install (cmake_install.cmake)
         shell: cmd
         working-directory: Plugins~\Build
         run: |
           cmake -DBUILD_TYPE=Release -P cmake_install.cmake
 
+      # ── Package ───────────────────────────────────────────────────────────
       - name: Package artifact
         shell: pwsh
         run: |
           $outName = "UnityMeshSync_Blender_5.1.0_Windows"
-          $distDir = Get-ChildItem "Plugins~\Dist" -Directory | Where-Object { $_.Name -match "Blender" -and $_.Name -match "5\.1" } | Select-Object -First 1
+          $distDir = Get-ChildItem "Plugins~\Dist" -Directory |
+                       Where-Object { $_.Name -match "Blender" -and $_.Name -match "5\.1" } |
+                       Select-Object -First 1
+          if (-not $distDir) {
+            Write-Error "Dist folder not found. Contents:"; Get-ChildItem "Plugins~\Dist"; exit 1
+          }
           Compress-Archive -Path "$($distDir.FullName)\*" -DestinationPath "${outName}.zip" -Force
+          Write-Host "Packaged: ${outName}.zip"
 
+      # ── Upload ───────────────────────────────────────────────────────────
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: UnityMeshSync-Blender-5.1.0-Windows
-          path: UnityMeshSync_Blender_5.1.0_Windows.zip
+          path: UnityMeshSync_Blender_5.1.0_Windows.zip      
