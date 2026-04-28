@@ -89,22 +89,30 @@ jobs:
         id: cache-python
         uses: actions/cache@v4
         with:
-          path: Plugins~\Build\Python-3.11.3
+          path: Plugins~\Build\Python-3.13.9
           key: python-src-3.11.3
 
-      - name: Download Python 3.11.3 source
-        if: steps.cache-python.outputs.cache-hit != 'true'
+      - name: Download Python 3.13.9 Dev
         shell: pwsh
         run: |
-          $tgz  = "${{ runner.temp }}\Python-3.11.3.tgz"
-          $dest = "Plugins~\Build\Python-3.11.3"
-          Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.3/Python-3.11.3.tgz" -OutFile $tgz -UseBasicParsing
-          New-Item -ItemType Directory -Force -Path "${{ runner.temp }}\py-extract" | Out-Null
-          tar -xzf $tgz -C "${{ runner.temp }}\py-extract"
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          Move-Item "${{ runner.temp }}\py-extract\Python-3.11.3\*" $dest
-          if (!(Test-Path "$dest\PC\pyconfig.h")) { Write-Error "pyconfig.h missing"; exit 1 }
-          Write-Host "pyconfig.h OK"
+          $pyDest = "Plugins~\Build\Python-3.13.9"
+          $nugetDest = "${{ runner.temp }}\python-nuget"
+          
+          # Install the python nuget package (tools only for headers/libs)
+          nuget install python -Version 3.13.9 -OutputDirectory $nugetDest
+          
+          $pyRoot = Get-ChildItem -Path "$nugetDest\python*" | Select-Object -First 1
+          
+          # Create the structure MeshSync expects
+          New-Item -ItemType Directory -Force -Path "$pyDest\Include" | Out-Null
+          New-Item -ItemType Directory -Force -Path "$pyDest\PC" | Out-Null
+          
+          # Copy precompiled headers
+          Copy-Item "$($pyRoot.FullName)\tools\include\*" "$pyDest\Include\" -Recurse -Force
+          # Nuget pre-compiles pyconfig.h into the include folder; copy it to PC for MeshSync
+          Copy-Item "$($pyRoot.FullName)\tools\include\pyconfig.h" "$pyDest\PC\pyconfig.h" -Force
+          
+          Write-Host "Python 3.13.9 Dev headers staged at $pyDest"
 
       # ── Cache fmtlib headers ──────────────────────────────────────────────
       - name: Cache fmtlib 10.2.1
